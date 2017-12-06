@@ -1,0 +1,187 @@
+---
+title: "Intro to R - Thor Exercise"
+author: "LTC Melanie Vinton"
+date: "Tuesday, January 17, 2017"
+output: dscoemarkdown::dscoe
+---
+
+This is the practical exercise for the DSCOE Inferno during Introduction to R Training at the Center for Army Analysis on 30 Jan - 3 Feb 17.  This exercise uses the Theater History of Operations (Thor) data, which can be found at [Data.mil](https://www.data.mil/s/v2/data-mil/1ff45997-196e-4e9a-96e2-eed27e3e17ab/).  The dataset used in this exercise are from Vietnam, October-December 1965.
+
+Each record represents a unique instance of a weapon type used on a target or engagement of a unique target.  
+That is, if plane A drops six 500 pound bombs on target 1, that will generate one record. If the same plane A drops two 250 pound bombs on the same target 1, that generates a second record. If the same plane A then drops three 250 pound bombs on a different target 2, that generates a third record. So the same sortie can generate multiple records. We will refer to each record as a mission.
+
+## Get and clean the data
+The first step is to read in the CSV file that you can download from the website.  To make the dataset easier to use for the class, we subset the missions based on a geographic bounding box of the theater of operations and eliminated some of the variables by setting them to NULL.  
+
+```{r echo=FALSE}
+thornam<-read.csv("K:/Divisions/OA/DSCOE/Vinton/THOR/thor_vietnam_1965.csv")
+```
+```{r eval=FALSE}
+thornam<-read.csv("C:/path/to/file/thor_vietnam_1965.csv")
+```
+
+```{r }
+nam65 <- subset(thornam, TGTLATDD_DDD_WGS84>7, na.rm=TRUE)
+nam65 <- subset(nam65, TGTLATDD_DDD_WGS84<24, na.rm=TRUE)
+nam65 <- subset(nam65, TGTLONDDD_DDD_WGS84>99, na.rm=TRUE)
+nam65 <- subset(nam65, TGTLONDDD_DDD_WGS84<110, na.rm=TRUE)
+
+nam65$AIRFORCEGROUP<-nam65$AIRFORCESQDN<-nam65$CALLSIGN<- NULL
+nam65$RELEASEALTITUDE <-nam65$RELEASEFLTSPEED<-nam65$RESULTSBDA <-nam65$TGTID<- NULL
+nam65$WEAPONTYPECLASS<-nam65$WEAPONSLOADEDWEIGHT<-nam65$SOURCEID<-nam65$SOURCERECORD<-NULL
+nam65$ID<-nam65$ADDITIONALINFO<-nam65$TGTORIGCOORDS<-nam65$TGTORIGCOORDSFORMAT<- NULL
+nam65$NUMWEAPONSDELIVERED<-nam65$WEAPONTYPEWEIGHT<-nam65$TGTWEATHER<-NULL
+nam65$NUMWEAPONSJETTISONED<-nam65$NUMWEAPONSRETURNED<-NULL
+nam65$AIRCRAFT_ORIGINAL<-nam65$AIRCRAFT_ROOT<- nam65$UNIT<- NULL
+nam65$GEOZONE<-nam65$FLTHOURS<-nam65$MFUNC<-nam65$TIMEOFFTARGET<-NULL
+
+```
+
+We also drop unused factor levels across the dataframe using the *droplevels* function.
+```{r}
+nam65 <- droplevels(nam65)
+
+```
+
+
+## Daily Missions Over 90 days
+
+The first request for analysis is for the number of missions each day for the past 90 days.  First, we look at the date variable "MSNDATE" to get a sense of the data, using the *count* function in the **plyr** package.
+
+```{r error=FALSE, message=FALSE, warning=FALSE,echo=FALSE}
+library(plyr)
+```
+```{r}
+library(plyr)
+missions <- count(nam65, vars='MSNDATE')
+head(missions,2)
+tail(missions,2)
+```
+Note that the format of the "MSNDATE" variable is not consistent.  We use the *ymd* function in the **lubridate** package to fix the date format.
+```{r error=FALSE, message=FALSE, warning=FALSE}
+library(lubridate)
+```
+```{r}
+nam65$MSNDATE <- ymd(nam65$MSNDATE)
+```
+Looking at the data again, you can see that the date format is fixed.
+```{r}
+missions <- count(nam65,vars='MSNDATE')
+head(missions, 2)
+tail(missions, 2)
+```
+The next step is to plot the time series of number of missions per day using the **ggplot2** package.  We use the **scales** package to specify the format of the date labels on the x-axis.  A good reference for this section is the book "R Graphics Cookbook" by Winston Chang, section 8.17.
+```{r error=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(scales)
+```
+
+We want to specify the breaks on the x-axis with weekly dates.  So we use the *seq* function to generate a set of dates to use for the breaks, named "datebreaks" for later reference.  The *as.Date* function in the **scales** package creates the date objects.
+```{r}
+datebreaks <- seq(as.Date("1965-10-01"), as.Date("1965-12-31"), by="week")
+```
+
+Next we will create the plot using **ggplot2**.  In the first line we identify which dataframe to use and the variables for each axis.  *Geom_area* and *geom_point* functions represent geometric objects that are drawn.  For *geom_area*, the color parameter sets the outline color, the fill parameter sets the fill color, and the alpha parameter sets the transparency of the fill, from 0 to 1 with 1 being no transparency.  There are several ways to refer to a color, including simple names, hexidecimal code, or palettes.  
+
+The *scale* function identifies which scale with '_x' and the type of scale with '_date', and the breaks parameter sets the breaks to the "datebreaks" vector created above.  The labels parameter uses the *date_format* function in the **scales** package to specify the date format to display on the x-axis.  In this case, "%b" refers to abbreviated month name (ex. Oct), "%d" refers to day number (ex. 12), and "%Y" refers to full year (ex. 1965), so the date label is displayed as "Oct 12, 1965" on the axis.
+
+The *theme* function sets some aspects of a graph's appearance.  In this case we want to adjust the text on the x-axis to a 30 degree angle to make it easier to read.  The *annotate* function adds a text element to the graph.  In this case, the deep dip in the data occurs on Christmas Day, so we want to label that.  We set the location of the annotation with the x and y parameters and provide the text with the label parameter.
+
+Finally, we use the *ggtitle*, *xlab*, and *ylab* functions to set the title of the graph and the axis labels.
+
+```{r}
+ggplot(missions,aes(x = MSNDATE, y = freq))+
+  geom_area(color='blue', fill='lightblue',alpha=.3)+
+  geom_point(color='blue')+
+  scale_x_date(breaks=datebreaks,labels=date_format("%b %d, %Y")) +
+  theme(axis.text.x=element_text(angle=30)) +
+  annotate("text", x=as.Date('1965-12-25'), y=20, label="Christmas Day") +
+  ggtitle("Number of Missions Per Day") +
+  xlab("Date") +
+  ylab('# of Missions')
+```
+
+## Distribution of Strike Mission Times
+The next analysis request is for the distribution of the time of day of the strike missions.  The variable "MFUNC_DESC" indicates the mission purpose and the variable "TIMEONTARGET" is the time.  Exploring the time variable, we see that the range should be from 0 to 2400 but the max exceeds 2400.  
+```{r}
+summary(nam65$TIMEONTARGET)
+```
+
+We decided to replace any time that exceeds 2400 with the median time on target across the data set.  
+```{r}
+nam65$TIMEONTARGET[nam65$TIMEONTARGET > 2400] <- median(nam65$TIMEONTARGET, na.rm=TRUE)
+summary(nam65$TIMEONTARGET)
+```
+Next we look at the levels in the factor variable "MFUNC_DESC" to figure out which represent strike missions.
+```{r}
+levels(nam65$MFUNC_DESC)
+```
+We want to subset the data to just include the "STRIKE" missions.  Then we create a basic histogram of the times of the strike missions, using 24 breaks to capture 24 hours.
+```{r}
+strike <- subset(nam65, MFUNC_DESC == "STRIKE")
+hist(strike$TIMEONTARGET, breaks = 24)
+```
+
+Another approach that creates a cleaner visualization that is easier to customize uses the **ggplot2** package.
+First we want to create bins for each hour and classify each mission into a bin in a new variable called "hour".  We adjust the "TIMEONTARGET" variables that are equal to 0 (for midnight) to just after midnight, so that those will bin into the 0001 to 0100 hour.  Then we create the bins using the *cut* function.  
+
+```{r}
+strike$TIMEONTARGET[strike$TIMEONTARGET == 0] <- 0010
+
+strike$hour <- cut(strike$TIMEONTARGET, c(0,100,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,
+                                        1600,1700,1800,1900,2000,2100,2200,2300,2400), 
+                 labels=c('0100','0200','0300','0400','0500','0600','0700','0800','0900',1000,1100,1200,1300,1400,1500,
+                          1600,1700,1800,1900,2000,2100,2200,2300,2400))
+```
+
+For the plot, we use the default *geom_bar* function which counts the occurances for each level in the "hour" variable.  Just as with the earlier plot, we set the titles with *ggtitle*, *xlab*, and *ylab*.  We also adjust the y-axis tick labels using the *scale_y_continuous* function to be a sequence from 0 to 1500 by 250.  We hide the minor lines in the grid base of the plot and adjust the angle of the text on the x-axis using the *theme* function.
+
+```{r}
+ggplot(strike,aes(x=hour)) +
+  geom_bar() +
+  xlab("Time on Target") + ylab("Number of Missions") + 
+  ggtitle("Breakdown of the Time of Day of Strike Missions\n(By Hour)")+
+  scale_y_continuous(breaks=seq(0,1500,250))+
+  theme(panel.grid.minor=element_blank())+
+  theme(axis.text.x=element_text(angle=30)) 
+```
+
+## Proportion of Kinetic Missions by Service
+The next analysis request is to determine the percent of missions that are classified as kinetic being executed by each military service.  To determine this, we use the *xtabs* function.  Looking at the summary of the dataframe, the "MFUNC_DESC_CLASS" variable delineates missions as either kinetic or non-kinetic.  The "MILSERVICE" variable identifies which military service conducted the mission (i.e. US Air Force, US Navy, etc.).  We use the *prop.table* function to calculate the percentages and the *round* function to round the decimals.
+```{r}
+kin <- round(prop.table(xtabs(~ MILSERVICE + MFUNC_DESC_CLASS , data=nam65),2)*100,2)
+kin
+```
+
+## Map Close Air Support Missions in the month of December
+
+The final request for analysis is a map of the close air support missions conducted in the month of December.  First, we need to parse the month out of the "MSNDATE" variable using the *str_sub* function in the **stringr** package, creating a new variable, "month".  With that we will be able to subset by month and mission type.
+
+```{r error=FALSE, message=FALSE, warning=FALSE}
+library(stringr)
+nam65$month <- str_sub(nam65$MSNDATE,start=6, end=7)
+
+nam65dec <- subset(nam65, month==12 & MFUNC_DESC=="CLOSE AIR SUPPORT")
+```
+
+Then we use the **leaflet** package to create a map.  There are a number of other geospatial DSCOE tutorials that cover leaflet maps and a great reference is the tutorial from [RStudio](http://rstudio.github.io/leaflet/).
+
+In leaflet, layer functions are used to add layers to the map.  The *leaflet* function creates the map widget.  The *setView* function centers the map on the latitude and longitude indicated, and zooms into the set level.  The zoom level can be from 0 to 19 - the higher the zoom level the farther in it zooms.  The *addProviderTiles* function sets the basemap you want to use, which are also called "providers".  The list of providers that you can reference with leaflet can be found [here](https://leaflet-extras.github.io/leaflet-providers/preview/) and in this case we chose "Esri.WorldTopoMap". 
+
+The *addCircleMarkers* function adds the data to the map in the form of a dot.  The data parameter defines which dataframe to reference. The lng and lat parameters define which variables hold the location data, and it is important to include the tilda (~) before the variable name, otherwise it will only plot one point.  The radius parameter sets the size of the dot.  The popup parameter creates a popup for each point with the information specified (again, the tilda is important), in this case the military service associated with that mission.  In the map, when the use clicks on the point, the popup appears.
+
+```{r error=FALSE, message=FALSE, warning=FALSE}
+library(leaflet)
+cas12<-leaflet() %>%
+  setView(lng = 107, lat = 17, zoom = 5) %>%
+  addProviderTiles("Esri.WorldTopoMap") %>%
+  addCircleMarkers(data=nam65dec, lng=~TGTLONDDD_DDD_WGS84, lat=~TGTLATDD_DDD_WGS84, 
+                   radius = 2,
+                   popup=~nam65dec$MILSERVICE)
+cas12
+```
+
+Hopefully this tutorial is a useful introduction to applying R to operational data and a good reference for learning to program with R.
+
+
+
